@@ -8,11 +8,13 @@ import hashlib
 from collections import defaultdict
 import threading
 import time
+import sys
+import json
 
 class GamemakerLocalizer:
     def __init__(self, root):
         self.root = root
-        self.root.title("Gamemaker YYC 本地化辅助工具 v0.1")
+        self.root.title("Gamemaker YYC 本地化辅助工具 Debug")
         self.root.geometry("1000x800")
         self.root.configure(bg="#2c3e50")
         
@@ -22,30 +24,69 @@ class GamemakerLocalizer:
         self.strings = []
         self.backup_created = False
         self.processing = False
-        self.search_mode = tk.StringVar(value="normal")
+        self.running = True
+        
+        # 弃用
+        self.blacklist_prefixes = [
+            'gml_', 'time_', 'ds_', 'image_', 'view_', 'keyboard_', 'window_', 
+            'string_', 'draw_', 'sprite_', 'file_', 'room_', 'object_', 'variable_', 
+            'audio_', 'instance_', 'camera_', 'surface_', 'move_', 'array_', 'is_', 
+            'lengthdir_', 'point_', 'dot_', 'mp_', 'collision_', 'position_', 
+            'game_', 'display_', 'skeleton_', 'date_', 'layer_', 'tilemap_', 
+            'tile_', 'background_', 'caption_', 'current_', 'delta_', 'event_', 
+            'mouse_', 'os_', 'pointer_', 'shader_', 'vk_', 'gp_', 'ev_', 'cr_', 
+            'pt_', 'ps_', 'fa_', 'dll_', 'ef_', 'phy_', 'matrix_', 'lb_', 'ov_', 
+            'buffer_', 'video_', 'xboxlive_', 'device_', 'browser_', 'of_', 
+            'leaderboard_', 'achievement_', 'asset_', 'kbv_', 'filename_', 
+            'http_', 'ini_', 'parameter_', 'json_', 'gesture_', 'invalid', 
+            'texturegroup_', 'font_', 'gpu_', 'part_', 'effect_', 'physics_', 
+            'gamepad_', 'steam_', 'push_', 'vertex_'
+        ]
         
         self.style = ttk.Style()
         self.style.theme_use('clam')
-        self.style.configure('TFrame', background='#2c3e50')
-        self.style.configure('TButton', background='#3498db', foreground='white', 
-                            font=('Arial', 10, 'bold'), padding=5)
-        self.style.map('TButton', background=[('active', '#2980b9')])
-        self.style.configure('TLabel', background='#2c3e50', foreground='#ecf0f1', 
-                            font=('Arial', 10))
-        self.style.configure('Treeview', background='#34495e', foreground='#ecf0f1', 
-                            fieldbackground='#34495e', font=('Arial', 9))
-        self.style.map('Treeview', background=[('selected', '#2980b9')])
-        self.style.configure('Treeview.Heading', background='#2c3e50', foreground='#ecf0f1',
-                            font=('Arial', 10, 'bold'))
-        self.style.configure('TEntry', fieldbackground='#34495e', foreground='white', 
-                            font=('Arial', 10))
-        self.style.configure('TCombobox', fieldbackground='#34495e', foreground='white')
-        self.style.configure('TNotebook', background='#2c3e50')
-        self.style.configure('TNotebook.Tab', background='#34495e', foreground='#ecf0f1',
-                            padding=[10, 5], font=('Arial', 10, 'bold'))
-        self.style.map('TNotebook.Tab', background=[('selected', '#3498db')])
+        
+        self.style.layout('Custom.TCheckbutton',
+            [('Checkbutton.padding',
+              {'children': [
+                  ('Checkbutton.indicator', {
+                      'side': 'left', 
+                      'sticky': '',
+                      'children': [
+                          ('CustomCheckbutton.indicator', {'side': 'left', 'sticky': ''})
+                      ]
+                  }),
+                  ('Checkbutton.focus', {
+                      'side': 'left', 
+                      'sticky': '',
+                      'children': [
+                          ('Checkbutton.label', {'sticky': 'nswe'})
+                      ]
+                  })
+              ],
+              'sticky': 'nswe'})])
+        
+        self.style.configure('Custom.TCheckbutton', 
+                            background='#2c3e50', 
+                            foreground='#ecf0f1',
+                            font=('Arial', 10),
+                            indicatormargin=2,
+                            indicatordiameter=15)
+        
+        self.style.map('Custom.TCheckbutton',
+            background=[('active', '#2c3e50'), ('selected', '#2c3e50')],
+            foreground=[('active', '#ecf0f1'), ('selected', '#ecf0f1')],
+            indicatorcolor=[
+                ('selected', '#3498db'),
+                ('!selected', '#7f8c8d')
+            ])
         
         self.create_widgets()
+        self.root.protocol("WM_DELETE_WINDOW", self.on_close)
+        
+    def on_close(self):
+        self.running = False
+        self.root.destroy()
         
     def create_widgets(self):
         main_frame = ttk.Frame(self.root)
@@ -57,12 +98,12 @@ class GamemakerLocalizer:
         ttk.Label(top_frame, text="游戏文件:").grid(row=0, column=0, padx=5, pady=5, sticky="e")
         self.file_entry = ttk.Entry(top_frame, width=70)
         self.file_entry.grid(row=0, column=1, padx=5, pady=5, sticky="we")
+
+        self.browse_btn = ttk.Button(top_frame, text="浏览...", command=self.browse_file)
+        self.browse_btn.grid(row=0, column=2, padx=5, pady=5)
         
-        browse_btn = ttk.Button(top_frame, text="浏览...", command=self.browse_file)
-        browse_btn.grid(row=0, column=2, padx=5, pady=5)
-        
-        load_btn = ttk.Button(top_frame, text="加载文件", command=self.load_file)
-        load_btn.grid(row=0, column=3, padx=5, pady=5)
+        self.load_btn = ttk.Button(top_frame, text="加载文件", command=self.load_file)
+        self.load_btn.grid(row=0, column=3, padx=5, pady=5)
         
         self.progress_var = tk.DoubleVar()
         self.progress = ttk.Progressbar(top_frame, variable=self.progress_var, 
@@ -79,20 +120,21 @@ class GamemakerLocalizer:
         
         search_frame = ttk.Frame(list_frame)
         search_frame.pack(fill=tk.X, pady=(0, 10))
-        
+    
         ttk.Label(search_frame, text="搜索:").pack(side=tk.LEFT, padx=(0, 5))
         self.search_var = tk.StringVar()
-        search_entry = ttk.Entry(search_frame, textvariable=self.search_var, width=40)
-        search_entry.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
-        search_entry.bind('<KeyRelease>', self.filter_strings)
+        self.search_entry = ttk.Entry(search_frame, textvariable=self.search_var, width=40)
+        self.search_entry.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
+        self.search_entry.bind('<KeyRelease>', self.filter_strings)
         
-        mode_frame = ttk.Frame(search_frame)
-        mode_frame.pack(side=tk.LEFT, padx=10)
+        btn_frame = ttk.Frame(search_frame)
+        btn_frame.pack(side=tk.RIGHT, padx=(5, 0))
         
-        ttk.Radiobutton(mode_frame, text="普通", variable=self.search_mode, 
-                        value="normal").pack(side=tk.LEFT)
-        ttk.Radiobutton(mode_frame, text="正则", variable=self.search_mode, 
-                        value="regex").pack(side=tk.LEFT, padx=(5, 0))
+        self.export_btn = ttk.Button(btn_frame, text="导出JSON", command=self.export_json)
+        self.export_btn.pack(side=tk.LEFT, padx=5)
+        
+        self.import_btn = ttk.Button(btn_frame, text="导入JSON", command=self.import_json)
+        self.import_btn.pack(side=tk.LEFT, padx=5)
         
         columns = ("address", "original", "translation", "status", "length")
         self.tree = ttk.Treeview(list_frame, columns=columns, show="headings", height=20)
@@ -168,11 +210,20 @@ class GamemakerLocalizer:
         bottom_frame = ttk.Frame(main_frame, padding=10)
         bottom_frame.pack(fill=tk.X, padx=5, pady=10)
         
-        save_btn = ttk.Button(bottom_frame, text="保存修改", command=self.save_file)
-        save_btn.pack(side=tk.RIGHT, padx=5)
+        self.save_btn = ttk.Button(bottom_frame, text="保存修改", command=self.save_file)
+        self.save_btn.pack(side=tk.RIGHT, padx=5)
         
-        preview_btn = ttk.Button(bottom_frame, text="生成预览", command=self.generate_preview)
-        preview_btn.pack(side=tk.RIGHT, padx=5)
+        self.preview_btn = ttk.Button(bottom_frame, text="生成预览", command=self.generate_preview)
+        self.preview_btn.pack(side=tk.RIGHT, padx=5)
+
+        btn_frame = ttk.Frame(trans_frame)
+        btn_frame.pack(fill=tk.X, pady=10)
+        
+        self.apply_btn = ttk.Button(btn_frame, text="应用翻译", command=self.apply_translation)
+        self.apply_btn.pack(side=tk.LEFT, padx=5)
+        
+        self.clear_btn = ttk.Button(btn_frame, text="清除", command=self.clear_translation)
+        self.clear_btn.pack(side=tk.LEFT, padx=5)
         
         self.status_var = tk.StringVar(value="就绪")
         status_bar = ttk.Label(
@@ -182,7 +233,7 @@ class GamemakerLocalizer:
         status_bar.pack(side=tk.BOTTOM, fill=tk.X)
         
         self.translation_text.focus()
-    
+
     def browse_file(self):
         file_path = filedialog.askopenfilename(
             title="选择 Gamemaker YYC 游戏文件",
@@ -215,11 +266,31 @@ class GamemakerLocalizer:
             self.progress_var.set(0)
             self.progress_label.config(text="加载文件中...")
             
+            self.set_ui_state(False)
+            
             threading.Thread(target=self.load_and_scan_file, daemon=True).start()
             
         except Exception as e:
             messagebox.showerror("错误", f"加载文件失败: {str(e)}")
             self.processing = False
+            self.set_ui_state(True)
+    
+    def set_ui_state(self, enabled):
+        state = "normal" if enabled else "disabled"
+        
+        self.file_entry.config(state=state)
+        self.search_entry.config(state=state)
+        self.translation_text.config(state=state)
+        
+        if enabled:
+            self.tree.bind("<<TreeviewSelect>>", self.on_string_select)
+        else:
+            self.tree.unbind("<<TreeviewSelect>>")
+        
+        for btn in [self.browse_btn, self.load_btn, self.apply_btn, 
+                    self.clear_btn, self.save_btn, self.preview_btn,
+                    self.export_btn, self.import_btn]:
+            btn.config(state=state)
     
     def load_and_scan_file(self):
         try:
@@ -232,17 +303,27 @@ class GamemakerLocalizer:
             
             self.find_strings()
             
+            if not self.running or not self.root.winfo_exists():
+                return
+                
             self.root.after(0, self.populate_string_list)
             
             self.update_progress(100, "文件加载完成")
             self.status_var.set(f"已加载文件: {os.path.basename(self.file_path)}")
             
         except Exception as e:
-            self.root.after(0, lambda: messagebox.showerror("错误", f"加载文件失败: {str(e)}"))
+            error_msg = str(e)
+            if self.running and self.root.winfo_exists():
+                self.root.after(0, lambda msg=error_msg: messagebox.showerror("错误", f"加载文件失败: {msg}"))
         finally:
             self.processing = False
+            if self.running and self.root.winfo_exists():
+                self.root.after(0, lambda: self.set_ui_state(True))
     
     def update_progress(self, value, message):
+        if not self.running or not self.root.winfo_exists():
+            return
+            
         self.progress_var.set(value)
         self.progress_label.config(text=message)
         self.root.update_idletasks()
@@ -257,7 +338,7 @@ class GamemakerLocalizer:
         total = len(data)
         found = 0
         
-        while pos < total:
+        while pos < total and self.running:
             match = pattern.search(data, pos)
             if not match:
                 break
@@ -268,18 +349,19 @@ class GamemakerLocalizer:
             if end < total and data[end] == 0:
                 try:
                     text = data[start:end].decode('utf-8')
-                    self.strings.append({
-                        'address': start,
-                        'original': text,
-                        'translation': "",
-                        'status': "未修改",
-                        'orig_length': end - start
-                    })
-                    found += 1
-                    
-                    if found % 100 == 0:
-                        self.update_progress(10 + (pos/total)*80, 
-                                           f"已找到 {found} 个字符串...")
+                    if self.is_likely_user_string(text):
+                        self.strings.append({
+                            'address': start,
+                            'original': text,
+                            'translation': "",
+                            'status': "未修改",
+                            'orig_length': end - start
+                        })
+                        found += 1
+                        
+                        if found % 100 == 0:
+                            self.update_progress(10 + (pos/total)*80, 
+                                               f"已找到 {found} 个字符串...")
                     
                     pos = end + 1
                     continue
@@ -289,69 +371,62 @@ class GamemakerLocalizer:
             pos = end + 1
         
         self.strings.sort(key=lambda x: x['address'])
+        self.update_progress(90, f"找到 {len(self.strings)} 个字符串，正在处理...")
 
     def is_likely_user_string(self, text):
-        if len(text) < 4:
-            return False
-            
-        if re.match(r'^[a-zA-Z]_', text):
-            return False
-            
-        first_char = text[0]
-        if first_char in "!@#$%^&()-=+{}[]|:;'\"<>,.?`~":
+        if '_' in text or '$' in text or '&' in text or '@' in text:
             return False
             
         return True
     
     def populate_string_list(self):
-        for item in self.tree.get_children():
-            self.tree.delete(item)
+        if not self.running or not self.root.winfo_exists():
+            return
+
+        self.filtered_strings = self.strings.copy()
+
+
+        self.filter_strings()
+
         
-        for i, s in enumerate(self.strings):
+    def filter_strings(self, event=None):
+        search_term = self.search_var.get().strip().lower()
+
+        if not hasattr(self, "strings") or not self.strings:
+            return
+
+        if not search_term:
+            self.filtered_strings = self.strings.copy()
+            self.status_var.set(f"显示全部 {len(self.filtered_strings)} 个字符串")
+        else:
+            self.filtered_strings = [
+                s for s in self.strings
+                if search_term in s['original'].lower() or search_term in s['translation'].lower()
+            ]
+            if self.filtered_strings:
+                self.status_var.set(f"找到 {len(self.filtered_strings)} 个匹配项")
+            else:
+                self.status_var.set(f"没有找到匹配 “{search_term}” 的字符串")
+
+        self.populate_tree_from_list(self.filtered_strings)
+
+    def populate_tree_from_list(self, string_list):
+        if not self.running or not self.root.winfo_exists():
+            return
+
+        self.tree.delete(*self.tree.get_children())
+
+        for i, s in enumerate(string_list):
             self.tree.insert("", "end", values=(
-                f"0x{s['address']:08X}", 
-                s['original'], 
-                s['translation'], 
+                f"0x{s['address']:08X}",
+                s['original'],
+                s['translation'],
                 s['status'],
                 s['orig_length']
             ))
-            
+
             if i % 100 == 0:
                 self.root.update()
-        
-        self.status_var.set(f"找到 {len(self.strings)} 个可本地化字符串")
-    
-    def filter_strings(self, event=None):
-        search_term = self.search_var.get().lower()
-        
-        all_items = self.tree.get_children()
-        
-        if not search_term:
-            for item in all_items:
-                self.tree.reattach(item, '', 'end')
-            return
-        
-        mode = self.search_mode.get()
-        
-        for item in all_items:
-            values = self.tree.item(item, "values")
-            original = values[1].lower()
-            translation = values[2].lower() if values[2] else ""
-            
-            match = False
-            if mode == "normal":
-                match = search_term in original or search_term in translation
-            elif mode == "regex":
-                try:
-                    pattern = re.compile(search_term, re.IGNORECASE)
-                    match = pattern.search(original) or pattern.search(translation)
-                except re.error:
-                    match = search_term in original or search_term in translation
-            
-            if match:
-                self.tree.reattach(item, '', 'end')
-            else:
-                self.tree.detach(item)
 
     def on_translation_change(self, event=None):
         if hasattr(self, 'current_item'):
@@ -392,27 +467,30 @@ class GamemakerLocalizer:
         self.hex_text.config(state='normal')
         self.hex_text.delete(1.0, tk.END)
         
-        orig_hex = binascii.hexlify(original.encode('utf-8')).decode('utf-8')
-        orig_formatted = ' '.join(orig_hex[i:i+2].upper() for i in range(0, len(orig_hex), 2))
-        
-        trans_hex = ""
-        trans_formatted = ""
-        if translation:
-            try:
-                trans_hex = binascii.hexlify(translation.encode('utf-8')).decode('utf-8')
-                trans_formatted = ' '.join(trans_hex[i:i+2].upper() for i in range(0, len(trans_hex), 2))
-            except:
-                pass
-        
-        self.hex_text.insert(tk.END, "原始: " + orig_formatted + "\n")
-        self.hex_text.insert(tk.END, "翻译: " + trans_formatted + "\n\n")
-        
-        orig_bytes = len(original.encode('utf-8'))
-        trans_bytes = len(translation.encode('utf-8')) if translation else 0
-        self.length_var.set(f"原始长度: {orig_bytes} 字节 | 翻译长度: {trans_bytes} 字节 | 可用空间: {orig_length} 字节")
-        
-        if translation and trans_bytes > orig_length:
-            self.hex_text.insert(tk.END, "警告: 翻译文本超过可用空间！\n", "warning")
+        try:
+            orig_hex = binascii.hexlify(original.encode('utf-8')).decode('utf-8')
+            orig_formatted = ' '.join(orig_hex[i:i+2].upper() for i in range(0, len(orig_hex), 2))
+            
+            trans_hex = ""
+            trans_formatted = ""
+            if translation:
+                try:
+                    trans_hex = binascii.hexlify(translation.encode('utf-8')).decode('utf-8')
+                    trans_formatted = ' '.join(trans_hex[i:i+2].upper() for i in range(0, len(trans_hex), 2))
+                except:
+                    pass
+            
+            self.hex_text.insert(tk.END, "原始: " + orig_formatted + "\n")
+            self.hex_text.insert(tk.END, "翻译: " + trans_formatted + "\n\n")
+            
+            orig_bytes = len(original.encode('utf-8'))
+            trans_bytes = len(translation.encode('utf-8')) if translation else 0
+            self.length_var.set(f"原始长度: {orig_bytes} 字节 | 翻译长度: {trans_bytes} 字节 | 可用空间: {orig_length} 字节")
+            
+            if translation and trans_bytes > orig_length:
+                self.hex_text.insert(tk.END, "警告: 翻译文本超过可用空间！\n", "warning")
+        except Exception as e:
+            self.hex_text.insert(tk.END, f"错误: {str(e)}")
         
         self.hex_text.config(state='disabled')
     
@@ -490,14 +568,18 @@ class GamemakerLocalizer:
                 self.preview_text.insert(tk.END, f"原始: {s['original']}\n")
                 self.preview_text.insert(tk.END, f"翻译: {s['translation']}\n")
                 
-                orig_hex = binascii.hexlify(s['original'].encode('utf-8')).decode('utf-8')
-                orig_formatted = ' '.join(orig_hex[i:i+2].upper() for i in range(0, len(orig_hex), 2))
+                try:
+                    orig_hex = binascii.hexlify(s['original'].encode('utf-8')).decode('utf-8')
+                    orig_formatted = ' '.join(orig_hex[i:i+2].upper() for i in range(0, len(orig_hex), 2))
+                    
+                    trans_hex = binascii.hexlify(s['translation'].encode('utf-8')).decode('utf-8')
+                    trans_formatted = ' '.join(trans_hex[i:i+2].upper() for i in range(0, len(trans_hex), 2))
+                    
+                    self.preview_text.insert(tk.END, f"原始十六进制: {orig_formatted}\n")
+                    self.preview_text.insert(tk.END, f"修改十六进制: {trans_formatted}\n")
+                except Exception as e:
+                    self.preview_text.insert(tk.END, f"十六进制转换错误: {str(e)}\n")
                 
-                trans_hex = binascii.hexlify(s['translation'].encode('utf-8')).decode('utf-8')
-                trans_formatted = ' '.join(trans_hex[i:i+2].upper() for i in range(0, len(trans_hex), 2))
-                
-                self.preview_text.insert(tk.END, f"原始十六进制: {orig_formatted}\n")
-                self.preview_text.insert(tk.END, f"修改十六进制: {trans_formatted}\n")
                 self.preview_text.insert(tk.END, "-"*80 + "\n")
         
         self.preview_text.config(state='disabled')
@@ -558,6 +640,110 @@ class GamemakerLocalizer:
                 self.status_var.set(f"文件已保存: {os.path.basename(save_path)}")
             except Exception as e:
                 messagebox.showerror("错误", f"保存文件失败: {str(e)}")
+    
+    def export_json(self):
+        if not hasattr(self, 'strings') or not self.strings:
+            messagebox.showwarning("警告", "没有可导出的字符串数据")
+            return
+            
+        filtered_strings = []
+        for s in self.filtered_strings:
+            if '_' not in s['original'] and '@' not in s['original']:
+                filtered_strings.append(s)
+        
+        if not filtered_strings:
+            messagebox.showinfo("导出", "没有符合条件的字符串可导出")
+            return
+            
+        file_path = filedialog.asksaveasfilename(
+            title="导出JSON文件",
+            defaultextension=".json",
+            filetypes=[("JSON文件", "*.json"), ("所有文件", "*.*")]
+        )
+        
+        if not file_path:
+            return
+            
+        try:
+            export_data = []
+            for s in filtered_strings:
+                export_data.append({
+                    "address": f"0x{s['address']:08X}",
+                    "original": s['original'],
+                    "translation": s['translation'],
+                    "length": s['orig_length']
+                })
+            
+            with open(file_path, "w", encoding="utf-8") as f:
+                json.dump(export_data, f, ensure_ascii=False, indent=2)
+                
+            messagebox.showinfo("导出成功", f"已导出 {len(export_data)} 个字符串到: {file_path}")
+            self.status_var.set(f"已导出 {len(export_data)} 个字符串")
+                
+        except Exception as e:
+            messagebox.showerror("导出错误", f"导出JSON失败: {str(e)}")
+    
+    def import_json(self):
+        if not hasattr(self, 'strings') or not self.strings:
+            messagebox.showwarning("警告", "请先加载文件")
+            return
+            
+        file_path = filedialog.askopenfilename(
+            title="导入JSON文件",
+            filetypes=[("JSON文件", "*.json"), ("所有文件", "*.*")]
+        )
+        
+        if not file_path:
+            return
+            
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                import_data = json.load(f)
+                
+            if not isinstance(import_data, list):
+                messagebox.showerror("导入错误", "JSON格式不正确，应为字符串列表")
+                return
+                
+            updated_count = 0
+            skipped_count = 0
+            
+            addr_map = {f"0x{s['address']:08X}": s for s in self.strings}
+            
+            for item in import_data:
+                addr = item.get("address", "")
+                translation = item.get("translation", "")
+                
+                if not addr or not translation:
+                    skipped_count += 1
+                    continue
+                    
+                target = addr_map.get(addr)
+                if not target:
+                    skipped_count += 1
+                    continue
+                    
+                trans_bytes = translation.encode('utf-8')
+                if len(trans_bytes) > target['orig_length']:
+                    skipped_count += 1
+                    continue
+                    
+                target['translation'] = translation
+                target['status'] = "已修改"
+                updated_count += 1
+                
+            self.populate_string_list()
+            
+            message = (
+                f"导入完成！\n\n"
+                f"更新: {updated_count} 个字符串\n"
+                f"跳过: {skipped_count} 个字符串\n\n"
+                f"原因: 地址不匹配或翻译过长"
+            )
+            messagebox.showinfo("导入结果", message)
+            self.status_var.set(f"导入完成: 更新 {updated_count} 个字符串")
+                
+        except Exception as e:
+            messagebox.showerror("导入错误", f"导入JSON失败: {str(e)}")
 
 if __name__ == "__main__":
     root = tk.Tk()
